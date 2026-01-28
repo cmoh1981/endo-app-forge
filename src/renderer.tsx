@@ -12,6 +12,7 @@ export const renderer = jsxRenderer(({ children, title }) => {
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Pretendard:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
         <link href="/static/style.css" rel="stylesheet" />
+        <script src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
       </head>
       <body>
         {children}

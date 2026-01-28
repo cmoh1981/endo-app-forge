@@ -2,5 +2,9 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "endo-app-forge",
   "compatibility_date": "2025-01-01",
-  "pages_build_output_dir": "dist"
+  "pages_build_output_dir": "dist",
+  "kv_namespaces": [
+    { "binding": "USERS", "id": "f506da6d5d4e4c63ab72cdf5e6f82f7e" },
+    { "binding": "SESSIONS", "id": "9a5028ea2020479ca605444d8140e64e" }
+  ]
 }

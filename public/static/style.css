@@ -172,3 +172,18 @@ a:hover { color: var(--blue); }
 .text-blue { color: var(--blue); }
 .font-bold { font-weight: 700; }
 .w-full { width: 100%; }
+.text-secondary { color: var(--text-secondary); }
+
+/* Modal */
+.modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
+.modal-content { background: #0f172a; border: 1px solid var(--border); border-radius: 1rem; padding: 2rem; width: 90%; max-width: 400px; position: relative; }
+.modal-close { position: absolute; top: 1rem; right: 1rem; background: none; border: none; color: var(--text-muted); font-size: 1.5rem; cursor: pointer; line-height: 1; }
+.modal-close:hover { color: var(--text); }
+
+/* Auth */
+.auth-error { background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; padding: 0.5rem 0.75rem; border-radius: 0.5rem; font-size: 0.8rem; margin-bottom: 1rem; }
+.auth-switch { color: var(--text-muted); }
+.auth-switch a { color: var(--blue); cursor: pointer; }
+
+/* User Menu */
+.user-menu { display: flex; align-items: center; gap: 0.75rem; }

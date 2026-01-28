@@ -4,6 +4,8 @@
 
   // ── State ──
   let templates = [];
+  let authToken = localStorage.getItem('auth_token');
+  let currentUser = null;
 
   // ── DOM References ──
   const $ = (sel) => document.querySelector(sel);
@@ -14,6 +16,8 @@
     initTabs();
     initEvidenceAI();
     initAppForge();
+    initAuth();
+    initPricing();
     fetchTemplates();
   });
 
@@ -81,9 +85,12 @@
     askBtn.innerHTML = '<span class="spinner"></span>';
 
     try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+
       const res = await fetch('/api/ask', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ question }),
       });
 
@@ -383,6 +390,196 @@
         <p class="text-sm mt-2"><strong>차별화 포인트:</strong> ${escapeHtml(bp.differentiator)}</p>
       </div>
     `;
+  }
+
+  // ─── Auth ──────────────────────────────────────────────────────────
+  function initAuth() {
+    const authBtn = $('#auth-btn');
+    const modal = $('#auth-modal');
+    const closeBtn = $('#modal-close');
+    const authForm = $('#auth-form');
+    const toggleBtn = $('#auth-toggle');
+    const logoutBtn = $('#logout-btn');
+
+    let isSignup = false;
+
+    if (authBtn) authBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (modal) modal.classList.remove('hidden');
+    });
+
+    if (closeBtn) closeBtn.addEventListener('click', () => {
+      if (modal) modal.classList.add('hidden');
+    });
+
+    // Close on backdrop click
+    if (modal) modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.classList.add('hidden');
+    });
+
+    if (toggleBtn) toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      isSignup = !isSignup;
+      const titleEl = $('#auth-title');
+      const submitEl = $('#auth-submit');
+      if (titleEl) titleEl.textContent = isSignup ? '회원가입' : '로그인';
+      if (submitEl) submitEl.textContent = isSignup ? '회원가입' : '로그인';
+      if (toggleBtn) toggleBtn.textContent = isSignup ? '로그인' : '회원가입';
+      // Update switch text
+      const switchP = toggleBtn.closest('.auth-switch');
+      if (switchP) {
+        const textNode = switchP.firstChild;
+        if (textNode && textNode.nodeType === Node.TEXT_NODE) {
+          textNode.textContent = isSignup ? '이미 계정이 있으신가요? ' : '계정이 없으신가요? ';
+        }
+      }
+    });
+
+    if (authForm) authForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = $('#auth-email').value;
+      const password = $('#auth-password').value;
+      const errorEl = $('#auth-error');
+      const submitBtn = $('#auth-submit');
+
+      if (errorEl) errorEl.classList.add('hidden');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = '처리 중...';
+      }
+
+      try {
+        const endpoint = isSignup ? '/api/auth/signup' : '/api/auth/login';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+
+        if (!res.ok) throw new Error(data.error || '오류가 발생했습니다.');
+
+        authToken = data.token;
+        currentUser = data.user;
+        localStorage.setItem('auth_token', authToken);
+        updateAuthUI();
+        if (modal) modal.classList.add('hidden');
+      } catch (err) {
+        if (errorEl) {
+          errorEl.textContent = err.message;
+          errorEl.classList.remove('hidden');
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.textContent = isSignup ? '회원가입' : '로그인';
+        }
+      }
+    });
+
+    if (logoutBtn) logoutBtn.addEventListener('click', async () => {
+      if (authToken) {
+        await fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        }).catch(() => {});
+      }
+      authToken = null;
+      currentUser = null;
+      localStorage.removeItem('auth_token');
+      updateAuthUI();
+    });
+
+    // Check existing session
+    if (authToken) checkSession();
+  }
+
+  async function checkSession() {
+    try {
+      const res = await fetch('/api/auth/me', {
+        headers: { 'Authorization': `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        currentUser = await res.json();
+        updateAuthUI();
+      } else {
+        authToken = null;
+        localStorage.removeItem('auth_token');
+        updateAuthUI();
+      }
+    } catch {
+      updateAuthUI();
+    }
+  }
+
+  function updateAuthUI() {
+    const authBtn = $('#auth-btn');
+    const userMenu = $('#user-menu');
+
+    if (currentUser && authToken) {
+      if (authBtn) authBtn.classList.add('hidden');
+      if (userMenu) {
+        userMenu.classList.remove('hidden');
+        const emailEl = $('#user-email');
+        const tierEl = $('#user-tier');
+        if (emailEl) emailEl.textContent = currentUser.email;
+        if (tierEl) {
+          const tierLabels = { free: 'Free', starter: 'Starter', growth: 'Growth' };
+          tierEl.textContent = tierLabels[currentUser.tier] || currentUser.tier;
+        }
+      }
+    } else {
+      if (authBtn) authBtn.classList.remove('hidden');
+      if (userMenu) userMenu.classList.add('hidden');
+    }
+  }
+
+  // ─── Paddle Checkout ───────────────────────────────────────────────
+  function initPricing() {
+    $$('.pricing-card .btn').forEach((btn) => {
+      const priceId = btn.dataset?.priceId;
+      if (!priceId) return;
+
+      btn.addEventListener('click', async () => {
+        if (!authToken) {
+          // Show login modal first
+          const modal = $('#auth-modal');
+          if (modal) modal.classList.remove('hidden');
+          return;
+        }
+
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = '처리 중...';
+
+        try {
+          const res = await fetch('/api/paddle/checkout', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${authToken}`,
+            },
+            body: JSON.stringify({ priceId }),
+          });
+          const data = await res.json();
+
+          if (!res.ok) throw new Error(data.error || '결제 처리 중 오류');
+
+          // Redirect to Paddle checkout
+          if (data.checkoutUrl) {
+            window.location.href = data.checkoutUrl;
+          } else if (data.transactionId) {
+            // Use Paddle.js inline checkout
+            window.open(`https://checkout.paddle.com/transaction/${data.transactionId}`, '_blank');
+          }
+        } catch (err) {
+          alert(err.message);
+        } finally {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }
+      });
+    });
   }
 
   // ─── Utilities ─────────────────────────────────────────────────────
