@@ -195,3 +195,73 @@ a:hover { color: var(--blue); }
 
 /* User Menu */
 .user-menu { display: flex; align-items: center; gap: 0.75rem; }
+
+/* ─── Chat UI ──────────────────────────────────────────────────── */
+.chat-container { max-width: 800px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.75rem; }
+.chat-messages { max-height: 500px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.75rem; padding: 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; min-height: 200px; }
+.chat-bubble { max-width: 85%; padding: 0.75rem 1rem; border-radius: 1rem; font-size: 0.9rem; line-height: 1.6; word-wrap: break-word; white-space: pre-wrap; }
+.chat-user { align-self: flex-end; background: var(--blue); color: white; border-bottom-right-radius: 0.25rem; }
+.chat-ai { align-self: flex-start; background: rgba(255,255,255,0.08); color: var(--text-secondary); border-bottom-left-radius: 0.25rem; }
+.chat-input-area { display: flex; gap: 0.5rem; }
+.chat-input { flex: 1; padding: 0.75rem 1rem; font-size: 0.9rem; background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; color: var(--text); outline: none; font-family: inherit; }
+.chat-input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px var(--blue-glow); }
+.chat-quick-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.chat-typing { display: flex; gap: 4px; padding: 0.75rem 1rem; align-self: flex-start; }
+.chat-typing span { width: 8px; height: 8px; background: var(--text-muted); border-radius: 50%; animation: chatBounce 1.4s infinite ease-in-out both; }
+.chat-typing span:nth-child(1) { animation-delay: -0.32s; }
+.chat-typing span:nth-child(2) { animation-delay: -0.16s; }
+@keyframes chatBounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+/* ─── Exercise UI ──────────────────────────────────────────────── */
+.filter-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1.5rem; }
+.filter-chip { padding: 0.5rem 1rem; font-size: 0.85rem; font-weight: 500; background: var(--surface); border: 1px solid var(--border); border-radius: 9999px; color: var(--text-secondary); cursor: pointer; transition: all 0.2s; font-family: inherit; }
+.filter-chip:hover { border-color: var(--blue); color: var(--blue); }
+.filter-chip.filter-active { background: var(--blue); color: white; border-color: var(--blue); }
+
+.exercise-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+.exercise-card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; overflow: hidden; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; }
+.exercise-card:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+.exercise-card-img { width: 100%; height: 180px; object-fit: cover; }
+.exercise-card-body { padding: 1rem; }
+.exercise-card-body h4 { font-size: 1rem; font-weight: 600; margin-bottom: 0.25rem; }
+.exercise-card-body .exercise-meta { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.5rem; }
+.exercise-type-badge { display: inline-flex; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-size: 0.7rem; font-weight: 600; }
+.difficulty-beginner { background: rgba(34,197,94,0.15); color: #86efac; border: 1px solid rgba(34,197,94,0.3); }
+.difficulty-intermediate { background: rgba(245,158,11,0.15); color: #fcd34d; border: 1px solid rgba(245,158,11,0.3); }
+.difficulty-advanced { background: rgba(239,68,68,0.15); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+
+.exercise-detail { padding: 1rem; border-top: 1px solid var(--border); background: rgba(0,0,0,0.2); display: none; }
+.exercise-detail.open { display: block; }
+.exercise-detail .detail-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.exercise-detail .detail-item { text-align: center; flex: 1; min-width: 60px; }
+.exercise-detail .detail-item .detail-value { font-size: 1.125rem; font-weight: 700; color: var(--blue); }
+.exercise-detail .detail-item .detail-label { font-size: 0.7rem; color: var(--text-muted); }
+.exercise-detail ol { padding-left: 1.25rem; }
+.exercise-detail ol li { font-size: 0.85rem; color: var(--text-secondary); padding: 0.25rem 0; }
+
+.exercise-plan-section { padding-top: 2rem; border-top: 1px solid var(--border); }
+
+/* Plan result cards */
+.plan-day-card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1rem; margin-bottom: 0.75rem; }
+.plan-day-card h4 { font-size: 0.95rem; font-weight: 600; color: var(--blue); margin-bottom: 0.5rem; }
+.plan-day-card table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.plan-day-card th { text-align: left; color: var(--text-muted); padding: 0.25rem 0.5rem; border-bottom: 1px solid var(--border); font-weight: 500; }
+.plan-day-card td { padding: 0.25rem 0.5rem; color: var(--text-secondary); }
+
+/* ─── Medication UI ────────────────────────────────────────────── */
+.med-result-card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.5rem; }
+.med-result-card .med-content { font-size: 0.9rem; line-height: 1.8; color: var(--text-secondary); white-space: pre-wrap; }
+.med-result-card .med-content strong { color: var(--text); }
+.med-sources { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+.med-sources h4 { font-size: 0.85rem; font-weight: 600; color: var(--text-muted); margin-bottom: 0.75rem; }
+.med-source-item { background: rgba(59,130,246,0.05); border: 1px solid rgba(59,130,246,0.15); border-radius: 0.5rem; padding: 0.75rem; margin-bottom: 0.5rem; }
+.med-source-item h5 { font-size: 0.85rem; font-weight: 600; color: var(--blue); margin-bottom: 0.25rem; }
+.med-source-item p { font-size: 0.8rem; color: var(--text-secondary); }
+
+/* ─── Responsive nav overflow ──────────────────────────────────── */
+@media (max-width: 768px) {
+  .nav { flex-direction: column; gap: 0.75rem; }
+  .nav-links { flex-wrap: wrap; justify-content: center; gap: 0.75rem; }
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab { white-space: nowrap; flex-shrink: 0; }
+}

@@ -11,10 +11,16 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
 
+  // ── Chat History (in-memory) ──
+  let chatHistory = [];
+
   // ── Init ──
   document.addEventListener('DOMContentLoaded', () => {
     initTabs();
     initEvidenceAI();
+    initHealthChat();
+    initExercises();
+    initMedication();
     initAppForge();
     initAuth();
     fetchTemplates();
@@ -182,6 +188,348 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
       });
     });
+  }
+
+  // ─── Health Chat ───────────────────────────────────────────────────
+  function initHealthChat() {
+    const chatInput = $('#chat-input');
+    const sendBtn = $('#chat-send-btn');
+    if (!chatInput || !sendBtn) return;
+
+    sendBtn.addEventListener('click', () => sendChatMessage());
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendChatMessage();
+    });
+
+    $$('.chat-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        chatInput.value = chip.dataset.message;
+        sendChatMessage();
+      });
+    });
+  }
+
+  async function sendChatMessage() {
+    const input = $('#chat-input');
+    const message = input.value.trim();
+    if (!message) return;
+
+    if (!authToken) {
+      alert('건강 챗봇을 이용하려면 로그인이 필요합니다.');
+      return;
+    }
+
+    const messagesEl = $('#chat-messages');
+    input.value = '';
+
+    // Add user message
+    const userBubble = document.createElement('div');
+    userBubble.className = 'chat-bubble chat-user';
+    userBubble.textContent = message;
+    messagesEl.appendChild(userBubble);
+
+    // Add typing indicator
+    const typingEl = document.createElement('div');
+    typingEl.className = 'chat-typing';
+    typingEl.innerHTML = '<span></span><span></span><span></span>';
+    messagesEl.appendChild(typingEl);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // Build history for API
+    chatHistory.push({ role: 'user', text: message });
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ message, history: chatHistory.slice(0, -1) }),
+      });
+
+      const data = await res.json();
+      typingEl.remove();
+
+      const aiBubble = document.createElement('div');
+      aiBubble.className = 'chat-bubble chat-ai';
+      aiBubble.textContent = data.reply || data.error || '응답을 받을 수 없습니다.';
+      messagesEl.appendChild(aiBubble);
+
+      chatHistory.push({ role: 'model', text: data.reply || '' });
+    } catch (err) {
+      typingEl.remove();
+      const errorBubble = document.createElement('div');
+      errorBubble.className = 'chat-bubble chat-ai';
+      errorBubble.textContent = '죄송합니다. 일시적인 오류가 발생했습니다.';
+      messagesEl.appendChild(errorBubble);
+    }
+
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  // ─── Exercises ────────────────────────────────────────────────────
+  let exercisesData = [];
+  let currentFilter = 'all';
+
+  function initExercises() {
+    // Fetch exercises
+    fetch('/api/exercises')
+      .then((r) => r.json())
+      .then((data) => {
+        exercisesData = data;
+        renderExercises();
+      })
+      .catch(() => {});
+
+    // Filter chips
+    $$('.filter-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        $$('.filter-chip').forEach((c) => c.classList.remove('filter-active'));
+        chip.classList.add('filter-active');
+        currentFilter = chip.dataset.filter;
+        renderExercises();
+      });
+    });
+
+    // Generate plan button
+    const planBtn = $('#generate-plan-btn');
+    if (planBtn) planBtn.addEventListener('click', () => generateExercisePlan());
+  }
+
+  function renderExercises() {
+    const grid = $('#exercise-grid');
+    if (!grid) return;
+
+    const filtered = currentFilter === 'all'
+      ? exercisesData
+      : exercisesData.filter((ex) => ex.category === currentFilter);
+
+    const difficultyLabel = { beginner: '초급', intermediate: '중급', advanced: '고급' };
+    const categoryLabel = { indoor: '실내', gym: '헬스장', outdoor: '야외' };
+
+    grid.innerHTML = filtered.map((ex) => `
+      <div class="exercise-card" data-id="${ex.id}">
+        <img src="${escapeHtml(ex.image)}" alt="${escapeHtml(ex.name_ko)}" class="exercise-card-img" loading="lazy" />
+        <div class="exercise-card-body">
+          <h4>${escapeHtml(ex.name_ko)}</h4>
+          <p class="text-xs text-muted">${escapeHtml(ex.name)}</p>
+          <div class="exercise-meta">
+            <span class="exercise-type-badge difficulty-${ex.difficulty}">${difficultyLabel[ex.difficulty] || ex.difficulty}</span>
+            <span class="exercise-type-badge" style="background: rgba(59,130,246,0.15); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3);">${escapeHtml(ex.type)}</span>
+            <span class="text-xs text-muted">${escapeHtml(ex.muscle)}</span>
+          </div>
+        </div>
+        <div class="exercise-detail" id="detail-${ex.id}">
+          <div class="detail-row">
+            <div class="detail-item">
+              <div class="detail-value">${ex.sets}</div>
+              <div class="detail-label">세트</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-value">${escapeHtml(ex.reps)}</div>
+              <div class="detail-label">반복</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-value">${ex.rest}초</div>
+              <div class="detail-label">휴식</div>
+            </div>
+            <div class="detail-item">
+              <div class="detail-value">${ex.cal}</div>
+              <div class="detail-label">kcal/분</div>
+            </div>
+          </div>
+          <ol>
+            ${ex.instructions.map((inst) => `<li>${escapeHtml(inst)}</li>`).join('')}
+          </ol>
+        </div>
+      </div>
+    `).join('');
+
+    // Bind card click to toggle detail
+    grid.querySelectorAll('.exercise-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        const detail = card.querySelector('.exercise-detail');
+        if (detail) {
+          detail.classList.toggle('open');
+        }
+      });
+    });
+  }
+
+  async function generateExercisePlan() {
+    if (!authToken) {
+      alert('운동 계획 생성을 위해 로그인이 필요합니다.');
+      return;
+    }
+
+    const goal = $('#plan-goal')?.value?.trim();
+    if (!goal) {
+      alert('운동 목표를 입력해 주세요.');
+      return;
+    }
+
+    const level = $('#plan-level')?.value || '초급';
+    const equipment = $('#plan-equipment')?.value || '맨몸';
+
+    const loading = $('#plan-loading');
+    const results = $('#plan-results');
+    const btn = $('#generate-plan-btn');
+
+    loading.classList.remove('hidden');
+    results.innerHTML = '';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 생성 중...';
+
+    try {
+      const res = await fetch('/api/exercises/plan', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ goal, level, equipment }),
+      });
+
+      const data = await res.json();
+
+      if (data.error) throw new Error(data.error);
+
+      if (data.plan && Array.isArray(data.plan)) {
+        results.innerHTML = data.plan.map((day) => `
+          <div class="plan-day-card">
+            <h4>${escapeHtml(day.day)} - ${escapeHtml(day.focus)}</h4>
+            <p class="text-xs text-muted mb-2">소요 시간: ${escapeHtml(day.duration || '30분')}</p>
+            <table>
+              <thead>
+                <tr><th>운동</th><th>세트</th><th>반복</th><th>휴식</th></tr>
+              </thead>
+              <tbody>
+                ${(day.exercises || []).map((ex) => `
+                  <tr>
+                    <td>${escapeHtml(ex.name)}</td>
+                    <td>${ex.sets || '-'}</td>
+                    <td>${escapeHtml(ex.reps || '-')}</td>
+                    <td>${escapeHtml(ex.rest || '-')}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            ${day.note ? `<p class="text-xs text-muted mt-2">${escapeHtml(day.note)}</p>` : ''}
+          </div>
+        `).join('');
+
+        if (data.tips && data.tips.length > 0) {
+          results.innerHTML += `
+            <div class="plan-day-card">
+              <h4>💡 운동 팁</h4>
+              <ul style="list-style: disc; padding-left: 1.25rem;">
+                ${data.tips.map((tip) => `<li class="text-sm text-secondary" style="padding: 0.25rem 0;">${escapeHtml(tip)}</li>`).join('')}
+              </ul>
+            </div>
+          `;
+        }
+      } else {
+        throw new Error('계획 데이터를 파싱할 수 없습니다.');
+      }
+    } catch (err) {
+      results.innerHTML = `
+        <div class="evidence-card">
+          <p style="color: var(--danger);">오류: ${escapeHtml(err.message)}</p>
+        </div>
+      `;
+    } finally {
+      loading.classList.add('hidden');
+      btn.disabled = false;
+      btn.textContent = '운동 계획 생성';
+    }
+  }
+
+  // ─── Medication ───────────────────────────────────────────────────
+  function initMedication() {
+    const medInput = $('#med-input');
+    const medBtn = $('#med-btn');
+    if (!medInput || !medBtn) return;
+
+    medBtn.addEventListener('click', () => searchMedication());
+    medInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') searchMedication();
+    });
+
+    $$('.med-chip').forEach((chip) => {
+      chip.addEventListener('click', () => {
+        medInput.value = chip.dataset.query;
+        searchMedication();
+      });
+    });
+  }
+
+  async function searchMedication() {
+    const input = $('#med-input');
+    const query = input.value.trim();
+    if (!query) return;
+
+    if (!authToken) {
+      alert('약물 정보 검색을 위해 로그인이 필요합니다.');
+      return;
+    }
+
+    const loading = $('#med-loading');
+    const results = $('#med-results');
+    const btn = $('#med-btn');
+
+    loading.classList.remove('hidden');
+    results.innerHTML = '';
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>';
+
+    try {
+      const res = await fetch('/api/medication', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ query }),
+      });
+
+      const data = await res.json();
+
+      let html = `
+        <div class="med-result-card">
+          <div class="flex items-center gap-2" style="gap: 0.75rem; margin-bottom: 0.75rem;">
+            <span class="source">약물 정보 AI</span>
+          </div>
+          <div class="med-content">${escapeHtml(data.info)}</div>
+      `;
+
+      if (data.sources && data.sources.length > 0) {
+        html += `
+          <div class="med-sources">
+            <h4>참고 의학 지식</h4>
+            ${data.sources.map((s) => `
+              <div class="med-source-item">
+                <h5>${escapeHtml(s.title)}</h5>
+                <p>${escapeHtml(s.content)}</p>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+      html += `</div>`;
+      results.innerHTML = html;
+    } catch (err) {
+      results.innerHTML = `
+        <div class="evidence-card">
+          <p style="color: var(--danger);">오류: ${escapeHtml(err.message)}</p>
+        </div>
+      `;
+    } finally {
+      loading.classList.add('hidden');
+      btn.disabled = false;
+      btn.textContent = '검색';
+    }
   }
 
   // ─── App Forge ─────────────────────────────────────────────────────
