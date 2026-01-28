@@ -6,8 +6,7 @@ import type { Context } from 'hono'
 type Bindings = {
   USERS: KVNamespace
   SESSIONS: KVNamespace
-  PADDLE_API_KEY: string
-  ZHIPU_API_KEY: string
+  GEMINI_API_KEY: string
   JWT_SECRET: string
 }
 
@@ -99,16 +98,12 @@ async function verifyToken(token: string, secret: string): Promise<{ userId: str
 interface SessionData {
   userId: string
   email: string
-  tier: string
 }
 
 interface UserData {
   id: string
   email: string
   passwordHash: string
-  tier: string
-  paddleCustomerId: string | null
-  paddleSubscriptionId: string | null
   createdAt: string
 }
 
@@ -318,45 +313,42 @@ function findEvidence(question: string): EvidenceResponse {
   }
 }
 
-// ─── GLM-4 AI Integration ───────────────────────────────────────────
+// ─── Gemini AI Integration ──────────────────────────────────────────
 
-async function askAI(question: string, apiKey: string): Promise<EvidenceResponse> {
-  try {
-    const response = await fetch('https://open.bigmodel.cn/api/paas/v4/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'glm-4',
-        messages: [
-          {
-            role: 'system',
-            content: `You are a clinical evidence AI assistant. Answer medical questions in Korean based on the latest clinical guidelines and peer-reviewed research. Always provide:
+const SYSTEM_PROMPT = `You are a clinical evidence AI assistant. Answer medical questions in Korean based on the latest clinical guidelines and peer-reviewed research. Always provide:
 1. A detailed evidence-based answer (in HTML with <strong> tags for emphasis)
 2. Real citations from major journals (NEJM, JAMA, Lancet, etc.) with DOIs
 3. Confidence level (high/moderate/limited)
 4. 3-4 related follow-up questions
 
-Respond in JSON format:
+Respond ONLY with valid JSON (no markdown fences):
 {
   "answer": "HTML formatted answer in Korean",
   "citations": [{"title": "Paper title", "journal": "Journal", "year": 2024, "doi": "10.xxx/xxx", "relevance": "Why relevant in Korean"}],
   "confidence": "high|moderate|limited",
   "relatedQuestions": ["Question 1 in Korean", ...]
 }`
-          },
-          { role: 'user', content: question }
-        ],
-        temperature: 0.3,
-      }),
-    })
 
-    if (!response.ok) throw new Error('GLM API error')
+async function askAI(question: string, apiKey: string): Promise<EvidenceResponse> {
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            { role: 'user', parts: [{ text: SYSTEM_PROMPT + '\n\nQuestion: ' + question }] }
+          ],
+          generationConfig: { temperature: 0.3 },
+        }),
+      }
+    )
+
+    if (!response.ok) throw new Error('Gemini API error')
 
     const data = await response.json() as any
-    const content = data.choices?.[0]?.message?.content
+    const content = data.candidates?.[0]?.content?.parts?.[0]?.text
 
     // Try to parse JSON from the response
     const jsonMatch = content?.match(/\{[\s\S]*\}/)
@@ -487,19 +479,16 @@ app.post('/api/auth/signup', async (c) => {
     id: userId,
     email,
     passwordHash,
-    tier: 'free',
-    paddleCustomerId: null,
-    paddleSubscriptionId: null,
     createdAt: new Date().toISOString(),
   }
   await c.env.USERS.put(`user:${email}`, JSON.stringify(userData))
 
   // Create session
   const token = await createToken(userId, c.env.JWT_SECRET)
-  const session: SessionData = { userId, email, tier: 'free' }
+  const session: SessionData = { userId, email }
   await c.env.SESSIONS.put(`session:${token}`, JSON.stringify(session), { expirationTtl: 7 * 24 * 60 * 60 })
 
-  return c.json({ token, user: { email, tier: 'free' } })
+  return c.json({ token, user: { email } })
 })
 
 app.post('/api/auth/login', async (c) => {
@@ -523,10 +512,10 @@ app.post('/api/auth/login', async (c) => {
 
   // Create session
   const token = await createToken(userData.id, c.env.JWT_SECRET)
-  const session: SessionData = { userId: userData.id, email: userData.email, tier: userData.tier }
+  const session: SessionData = { userId: userData.id, email: userData.email }
   await c.env.SESSIONS.put(`session:${token}`, JSON.stringify(session), { expirationTtl: 7 * 24 * 60 * 60 })
 
-  return c.json({ token, user: { email: userData.email, tier: userData.tier } })
+  return c.json({ token, user: { email: userData.email } })
 })
 
 app.get('/api/auth/me', async (c) => {
@@ -535,14 +524,7 @@ app.get('/api/auth/me', async (c) => {
     return c.json({ error: '\uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.' }, 401)
   }
 
-  // Get full user data to include paddleCustomerId
-  const raw = await c.env.USERS.get(`user:${user.email}`)
-  if (!raw) {
-    return c.json({ error: '\uC0AC\uC6A9\uC790\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.' }, 404)
-  }
-  const userData = JSON.parse(raw) as UserData
-
-  return c.json({ email: userData.email, tier: userData.tier, paddleCustomerId: userData.paddleCustomerId })
+  return c.json({ email: user.email })
 })
 
 app.post('/api/auth/logout', async (c) => {
@@ -554,148 +536,6 @@ app.post('/api/auth/logout', async (c) => {
   return c.json({ success: true })
 })
 
-// ─── Paddle Routes ──────────────────────────────────────────────────
-
-app.post('/api/paddle/checkout', async (c) => {
-  const user = await getUser(c)
-  if (!user) {
-    return c.json({ error: '\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.' }, 401)
-  }
-
-  const body = await c.req.json<{ priceId: string }>()
-  const { priceId } = body
-
-  if (!priceId) {
-    return c.json({ error: '\uC694\uAE08\uC81C\uB97C \uC120\uD0DD\uD574 \uC8FC\uC138\uC694.' }, 400)
-  }
-
-  const paddleApiKey = c.env.PADDLE_API_KEY
-  const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${paddleApiKey}`,
-  }
-
-  // Get or create Paddle customer
-  const raw = await c.env.USERS.get(`user:${user.email}`)
-  if (!raw) {
-    return c.json({ error: '\uC0AC\uC6A9\uC790\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.' }, 404)
-  }
-  const userData = JSON.parse(raw) as UserData
-
-  let customerId = userData.paddleCustomerId
-
-  if (!customerId) {
-    // Create Paddle customer
-    const custRes = await fetch('https://api.paddle.com/customers', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ email: user.email }),
-    })
-    if (!custRes.ok) {
-      const err = await custRes.text()
-      return c.json({ error: '\uACE0\uAC1D \uC0DD\uC131 \uC2E4\uD328: ' + err }, 500)
-    }
-    const custData = await custRes.json() as any
-    customerId = custData.data?.id
-    if (customerId) {
-      userData.paddleCustomerId = customerId
-      await c.env.USERS.put(`user:${user.email}`, JSON.stringify(userData))
-    }
-  }
-
-  // Create transaction
-  const txBody: any = {
-    items: [{ price_id: priceId, quantity: 1 }],
-    custom_data: { userId: user.userId, email: user.email },
-  }
-  if (customerId) {
-    txBody.customer_id = customerId
-  }
-
-  const txRes = await fetch('https://api.paddle.com/transactions', {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(txBody),
-  })
-
-  if (!txRes.ok) {
-    const err = await txRes.text()
-    return c.json({ error: '\uACB0\uC81C \uC0DD\uC131 \uC2E4\uD328: ' + err }, 500)
-  }
-
-  const txData = await txRes.json() as any
-  const transaction = txData.data
-
-  return c.json({
-    transactionId: transaction?.id,
-    checkoutUrl: transaction?.checkout?.url || null,
-  })
-})
-
-app.post('/api/paddle/webhook', async (c) => {
-  // For MVP, validate event structure (full signature verification can be added later)
-  const body = await c.req.json<any>()
-  const eventType = body.event_type
-  const data = body.data
-
-  if (!eventType || !data) {
-    return c.json({ error: 'Invalid webhook' }, 400)
-  }
-
-  const STARTER_PRICE = 'pri_01kg1p1kfdc3vpyak8s8bz23db'
-  const GROWTH_PRICE = 'pri_01kg1p1tykw6zt9gv30nympfsn'
-
-  // Determine user from custom_data or customer_id
-  let userEmail: string | null = null
-  const customData = data.custom_data
-  if (customData?.email) {
-    userEmail = customData.email
-  } else if (data.customer_id) {
-    // Search by paddle customer ID (scan is acceptable for webhook frequency)
-    const list = await c.env.USERS.list({ prefix: 'user:' })
-    for (const key of list.keys) {
-      const raw = await c.env.USERS.get(key.name)
-      if (raw) {
-        const u = JSON.parse(raw) as UserData
-        if (u.paddleCustomerId === data.customer_id) {
-          userEmail = u.email
-          break
-        }
-      }
-    }
-  }
-
-  if (!userEmail) {
-    return c.json({ received: true, warning: 'user not found' })
-  }
-
-  const raw = await c.env.USERS.get(`user:${userEmail}`)
-  if (!raw) {
-    return c.json({ received: true, warning: 'user not in KV' })
-  }
-
-  const userData = JSON.parse(raw) as UserData
-
-  if (eventType === 'subscription.activated' || eventType === 'subscription.updated') {
-    const priceId = data.items?.[0]?.price?.id
-    if (priceId === STARTER_PRICE) {
-      userData.tier = 'starter'
-    } else if (priceId === GROWTH_PRICE) {
-      userData.tier = 'growth'
-    }
-    userData.paddleSubscriptionId = data.id || null
-  } else if (eventType === 'subscription.canceled') {
-    userData.tier = 'free'
-    userData.paddleSubscriptionId = null
-  }
-
-  await c.env.USERS.put(`user:${userEmail}`, JSON.stringify(userData))
-
-  // Also update any active sessions for this user
-  // (sessions will reflect new tier on next /api/auth/me call)
-
-  return c.json({ received: true })
-})
 
 // ─── API: Evidence AI ───────────────────────────────────────────────
 
@@ -707,28 +547,13 @@ app.post('/api/ask', async (c) => {
 
   const user = await getUser(c)
 
-  // If user is authenticated and has paid tier, use GLM-4
-  if (user && (user.tier === 'starter' || user.tier === 'growth')) {
-    // Check usage for starter tier
-    if (user.tier === 'starter') {
-      const now = new Date()
-      const monthKey = `usage:${user.userId}:${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-      const usageRaw = await c.env.USERS.get(monthKey)
-      const usage = usageRaw ? parseInt(usageRaw, 10) : 0
-
-      if (usage >= 50) {
-        return c.json({ error: '\uC6D4\uAC04 \uC9C8\uC758 \uD69F\uC218(50\uD68C)\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4. Growth \uD50C\uB79C\uC73C\uB85C \uC5C5\uADF8\uB808\uC774\uB4DC\uD558\uC138\uC694.' }, 429)
-      }
-
-      // Increment usage
-      await c.env.USERS.put(monthKey, String(usage + 1), { expirationTtl: 32 * 24 * 60 * 60 })
-    }
-
-    const result = await askAI(body.question, c.env.ZHIPU_API_KEY)
+  // Authenticated users get GLM-4 AI (unlimited, free)
+  if (user) {
+    const result = await askAI(body.question, c.env.GEMINI_API_KEY)
     return c.json(result)
   }
 
-  // Free tier or unauthenticated: use static evidence
+  // Unauthenticated: use static evidence fallback
   const result = findEvidence(body.question)
   return c.json(result)
 })
@@ -754,11 +579,10 @@ app.get('/', (c) => {
         <div class="nav-links">
           <a href="#" data-tab="evidence">Evidence AI</a>
           <a href="#" data-tab="forge">App Forge</a>
-          <a href="#" data-tab="pricing">Pricing</a>
+          <a href="#" data-tab="pricing">{'\uC18C\uAC1C'}</a>
           <a href="#" id="auth-btn" class="btn btn-outline btn-sm">{'\uB85C\uADF8\uC778'}</a>
           <div id="user-menu" class="hidden user-menu">
             <span id="user-email" class="text-sm text-secondary"></span>
-            <span id="user-tier" class="badge"></span>
             <button id="logout-btn" class="btn btn-outline btn-sm">{'\uB85C\uADF8\uC544\uC6C3'}</button>
           </div>
         </div>
@@ -778,11 +602,16 @@ app.get('/', (c) => {
         </p>
       </section>
 
+      {/* Ad Banner - Top */}
+      <div class="ad-banner" id="ad-top">
+        <div class="ad-placeholder">Advertisement</div>
+      </div>
+
       {/* Tabs */}
       <div class="tabs">
         <button class="tab active" data-tab="evidence">Evidence AI</button>
         <button class="tab" data-tab="forge">App Forge</button>
-        <button class="tab" data-tab="pricing">Pricing</button>
+        <button class="tab" data-tab="pricing">{'\uC18C\uAC1C'}</button>
       </div>
 
       {/* Tab 1: Evidence AI */}
@@ -816,6 +645,11 @@ app.get('/', (c) => {
             <button class="quick-chip" data-question={'\uACE0\uB839 \uB2F9\uB1E8\uBCD1 \uD658\uC790\uC758 HbA1c \uBAA9\uD45C\uCE58\uB294?'}>
               {'\uACE0\uB839 \uD658\uC790 HbA1c \uBAA9\uD45C'}
             </button>
+          </div>
+
+          {/* Ad Banner - Evidence Inline */}
+          <div class="ad-banner ad-inline" id="ad-evidence">
+            <div class="ad-placeholder">Advertisement</div>
           </div>
 
           <div id="evidence-loading" class="hidden mt-6">
@@ -880,6 +714,11 @@ app.get('/', (c) => {
             <button id="generate-btn" class="btn btn-primary w-full">{'\uBE14\uB8E8\uD504\uB9B0\uD2B8 \uC0DD\uC131'}</button>
           </div>
 
+          {/* Ad Banner - Forge Inline */}
+          <div class="ad-banner ad-inline" id="ad-forge">
+            <div class="ad-placeholder">Advertisement</div>
+          </div>
+
           <div id="forge-loading" class="hidden mt-6">
             <div class="loading-bar"></div>
             <p class="text-sm text-muted">{'\uBE14\uB8E8\uD504\uB9B0\uD2B8\uB97C \uC0DD\uC131\uD558\uACE0 \uC788\uC2B5\uB2C8\uB2E4'}<span class="loading-dots"></span></p>
@@ -889,54 +728,29 @@ app.get('/', (c) => {
         </div>
       </div>
 
-      {/* Tab 3: Pricing */}
+      {/* Tab 3: About (was Pricing) */}
       <div id="panel-pricing" class="tab-panel">
         <div class="section text-center">
-          <h2 class="section-title">{'\uC694\uAE08\uC81C'}</h2>
-          <p class="section-desc">{'\uD504\uB85C\uC81D\uD2B8 \uADDC\uBAA8\uC5D0 \uB9DE\uB294 \uD50C\uB79C\uC744 \uC120\uD0DD\uD558\uC138\uC694.'}</p>
+          <h2 class="section-title">{'\uBB34\uB8CC\uB85C \uC0AC\uC6A9\uD558\uC138\uC694'}</h2>
+          <p class="section-desc">{'Endo App Forge\uB294 \uBAA8\uB4E0 \uAE30\uB2A5\uC744 \uBB34\uB8CC\uB85C \uC81C\uACF5\uD569\uB2C8\uB2E4. \uD68C\uC6D0\uAC00\uC785\uB9CC \uD558\uBA74 AI \uC784\uC0C1 \uADFC\uAC70 \uAC80\uC0C9\uACFC \uC571 \uBE14\uB8E8\uD504\uB9B0\uD2B8 \uC0DD\uC131\uC744 \uBB34\uC81C\uD55C\uC73C\uB85C \uC774\uC6A9\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.'}</p>
 
           <div class="grid-3">
-            <div class="pricing-card">
-              <h3>Starter</h3>
-              <div class="pricing-price">$39</div>
-              <div class="pricing-period">/ {'\uC6D4'}</div>
-              <ul class="pricing-features">
-                <li>Evidence AI {'\uC6D4'} 50{'\uD68C \uC9C8\uC758'}</li>
-                <li>{'\uC571 \uBE14\uB8E8\uD504\uB9B0\uD2B8 \uC6D4'} 3{'\uD68C \uC0DD\uC131'}</li>
-                <li>{'\uAE30\uBCF8 \uD15C\uD50C\uB9BF \uB77C\uC774\uBE0C\uB7EC\uB9AC'}</li>
-                <li>{'\uC774\uBA54\uC77C \uC9C0\uC6D0'}</li>
-              </ul>
-              <button class="btn btn-outline w-full" data-price-id="pri_01kg1p1kfdc3vpyak8s8bz23db">{'\uC2DC\uC791\uD558\uAE30'}</button>
+            <div class="card">
+              <h3>{'AI \uC784\uC0C1 \uADFC\uAC70 \uAC80\uC0C9'}</h3>
+              <p>{'GLM-4 AI \uAE30\uBC18 \uCD5C\uC2E0 \uAC00\uC774\uB4DC\uB77C\uC778 \uBC0F \uC5F0\uAD6C \uADFC\uAC70 \uAC80\uC0C9. \uBB34\uC81C\uD55C \uC9C8\uC758.'}</p>
             </div>
+            <div class="card">
+              <h3>{'\uC571 \uBE14\uB8E8\uD504\uB9B0\uD2B8 \uC0DD\uC131'}</h3>
+              <p>{'\uC758\uB8CC \uC571 \uC124\uACC4 \uBE14\uB8E8\uD504\uB9B0\uD2B8\uB97C AI\uAC00 \uC790\uB3D9 \uC0DD\uC131. \uBB34\uC81C\uD55C \uC0DD\uC131.'}</p>
+            </div>
+            <div class="card">
+              <h3>{'3\uC885 \uC758\uB8CC \uD15C\uD50C\uB9BF'}</h3>
+              <p>{'\uD608\uB2F9 \uAD00\uB9AC, \uC784\uC0C1\uC2DC\uD5D8, \uB300\uC0AC \uCF54\uCE6D \uC804\uBB38 \uD15C\uD50C\uB9BF \uC81C\uACF5.'}</p>
+            </div>
+          </div>
 
-            <div class="pricing-card featured">
-              <div class="badge mb-4">{'\uC778\uAE30'}</div>
-              <h3>Growth</h3>
-              <div class="pricing-price">$79</div>
-              <div class="pricing-period">/ {'\uC6D4'}</div>
-              <ul class="pricing-features">
-                <li>Evidence AI {'\uBB34\uC81C\uD55C \uC9C8\uC758'}</li>
-                <li>{'\uC571 \uBE14\uB8E8\uD504\uB9B0\uD2B8 \uBB34\uC81C\uD55C \uC0DD\uC131'}</li>
-                <li>{'\uD504\uB9AC\uBBF8\uC5C4 \uD15C\uD50C\uB9BF \uB77C\uC774\uBE0C\uB7EC\uB9AC'}</li>
-                <li>{'\uCF54\uB4DC \uC0DD\uC131 (React Native)'}</li>
-                <li>{'\uC6B0\uC120 \uC9C0\uC6D0'}</li>
-              </ul>
-              <button class="btn btn-primary w-full" data-price-id="pri_01kg1p1tykw6zt9gv30nympfsn">Growth {'\uC2DC\uC791'}</button>
-            </div>
-
-            <div class="pricing-card">
-              <h3>Enterprise</h3>
-              <div class="pricing-price">{'\uB9DE\uCDA4'}</div>
-              <div class="pricing-period">{'\uACAC\uC801 \uBB38\uC758'}</div>
-              <ul class="pricing-features">
-                <li>{'\uBAA8\uB4E0 Growth \uAE30\uB2A5 \uD3EC\uD568'}</li>
-                <li>{'\uC804\uC6A9 \uC778\uD504\uB77C'}</li>
-                <li>{'HIPAA \uADDC\uC815 \uC900\uC218 \uBCF4\uC7A5'}</li>
-                <li>{'SSO/SAML \uC778\uC99D'}</li>
-                <li>{'SLA \uBCF4\uC7A5 & \uC804\uB2F4 \uB9E4\uB2C8\uC800'}</li>
-              </ul>
-              <button class="btn btn-outline w-full">{'\uBB38\uC758\uD558\uAE30'}</button>
-            </div>
+          <div class="mt-6">
+            <button class="btn btn-primary btn-lg" id="free-signup-btn">{'\uBB34\uB8CC \uD68C\uC6D0\uAC00\uC785'}</button>
           </div>
         </div>
       </div>
@@ -962,6 +776,11 @@ app.get('/', (c) => {
             {'\uACC4\uC815\uC774 \uC5C6\uC73C\uC2E0\uAC00\uC694? '}<a href="#" id="auth-toggle" class="text-blue">{'\uD68C\uC6D0\uAC00\uC785'}</a>
           </p>
         </div>
+      </div>
+
+      {/* Ad Banner - Bottom */}
+      <div class="ad-banner" id="ad-bottom">
+        <div class="ad-placeholder">Advertisement</div>
       </div>
 
       {/* Footer */}

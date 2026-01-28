@@ -129,14 +129,22 @@ a:hover { color: var(--blue); }
 .footer { border-top: 1px solid var(--border); padding: 2rem 0; margin-top: 3rem; font-size: 0.8125rem; color: var(--text-muted); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem; }
 .footer-links { display: flex; gap: 1.5rem; }
 
-/* Pricing */
-.pricing-card { background: var(--surface); border: 1px solid var(--border); border-radius: 1rem; padding: 2rem; text-align: center; }
-.pricing-card.featured { border-color: var(--blue); background: var(--blue-glow); }
-.pricing-price { font-size: 2rem; font-weight: 700; margin: 1rem 0 0.5rem; }
-.pricing-period { font-size: 0.875rem; color: var(--text-muted); }
-.pricing-features { list-style: none; text-align: left; margin: 1.5rem 0; }
-.pricing-features li { padding: 0.375rem 0; font-size: 0.875rem; color: var(--text-secondary); }
-.pricing-features li::before { content: '\2713  '; color: var(--success); font-weight: bold; }
+/* Ad Banners */
+.ad-banner { margin: 1.5rem 0; text-align: center; }
+.ad-banner.ad-inline { margin: 1rem 0; }
+.ad-placeholder {
+  background: rgba(255,255,255,0.03);
+  border: 1px dashed var(--border);
+  border-radius: 0.5rem;
+  padding: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+/* Large button */
+.btn-lg { padding: 0.875rem 2rem; font-size: 1rem; }
 
 /* Blueprint result */
 .blueprint-section { background: var(--surface); border: 1px solid var(--border); border-radius: 0.75rem; padding: 1.25rem; margin-bottom: 1rem; }

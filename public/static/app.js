@@ -17,7 +17,6 @@
     initEvidenceAI();
     initAppForge();
     initAuth();
-    initPricing();
     fetchTemplates();
   });
 
@@ -490,6 +489,16 @@
       updateAuthUI();
     });
 
+    // Free signup button on About tab
+    const freeSignupBtn = $('#free-signup-btn');
+    if (freeSignupBtn) freeSignupBtn.addEventListener('click', () => {
+      isSignup = true;
+      $('#auth-title').textContent = '회원가입';
+      $('#auth-submit').textContent = '회원가입';
+      if ($('#auth-toggle')) $('#auth-toggle').textContent = '로그인';
+      modal.classList.remove('hidden');
+    });
+
     // Check existing session
     if (authToken) checkSession();
   }
@@ -521,12 +530,7 @@
       if (userMenu) {
         userMenu.classList.remove('hidden');
         const emailEl = $('#user-email');
-        const tierEl = $('#user-tier');
         if (emailEl) emailEl.textContent = currentUser.email;
-        if (tierEl) {
-          const tierLabels = { free: 'Free', starter: 'Starter', growth: 'Growth' };
-          tierEl.textContent = tierLabels[currentUser.tier] || currentUser.tier;
-        }
       }
     } else {
       if (authBtn) authBtn.classList.remove('hidden');
@@ -534,53 +538,6 @@
     }
   }
 
-  // ─── Paddle Checkout ───────────────────────────────────────────────
-  function initPricing() {
-    $$('.pricing-card .btn').forEach((btn) => {
-      const priceId = btn.dataset?.priceId;
-      if (!priceId) return;
-
-      btn.addEventListener('click', async () => {
-        if (!authToken) {
-          // Show login modal first
-          const modal = $('#auth-modal');
-          if (modal) modal.classList.remove('hidden');
-          return;
-        }
-
-        btn.disabled = true;
-        const originalText = btn.textContent;
-        btn.textContent = '처리 중...';
-
-        try {
-          const res = await fetch('/api/paddle/checkout', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`,
-            },
-            body: JSON.stringify({ priceId }),
-          });
-          const data = await res.json();
-
-          if (!res.ok) throw new Error(data.error || '결제 처리 중 오류');
-
-          // Redirect to Paddle checkout
-          if (data.checkoutUrl) {
-            window.location.href = data.checkoutUrl;
-          } else if (data.transactionId) {
-            // Use Paddle.js inline checkout
-            window.open(`https://checkout.paddle.com/transaction/${data.transactionId}`, '_blank');
-          }
-        } catch (err) {
-          alert(err.message);
-        } finally {
-          btn.disabled = false;
-          btn.textContent = originalText;
-        }
-      });
-    });
-  }
 
   // ─── Utilities ─────────────────────────────────────────────────────
   function escapeHtml(str) {
