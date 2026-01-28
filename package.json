@@ -1,0 +1,21 @@
+{
+  "name": "endo-app-forge",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "wrangler pages dev dist",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name endo-app-forge",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "hono": "^4.7.0",
+    "@hono/vite-dev-server": "^0.18.0"
+  },
+  "devDependencies": {
+    "vite": "^6.3.0",
+    "wrangler": "^4.4.0",
+    "typescript": "^5.7.0",
+    "@cloudflare/workers-types": "^4.20250109.0"
+  }
+}
